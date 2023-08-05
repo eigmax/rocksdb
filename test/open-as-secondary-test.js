@@ -21,7 +21,7 @@ function factory (mode) {
   return leveldown(location)
 }
 
-test.only('openAsSecondary: test write to read/write database', function (t) {
+test('openAsSecondary: test write to read/write database', function (t) {
   const db = factory()
   db.open(function (err) {
     t.ifError(err, 'no error from open()')
