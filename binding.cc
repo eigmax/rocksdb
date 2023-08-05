@@ -479,8 +479,10 @@ struct Database {
 
   leveldb::Status Open (const leveldb::Options& options,
                         bool readOnly,
-                        const char* location) {
-    if (readOnly) {
+                        const char* location, const char* secondaryLocation) {
+    if (strlen(secondaryLocation) > 0){
+      return rocksdb::DB::OpenAsSecondary(options, location, secondaryLocation, &db_);
+    } else if (readOnly) {
       return rocksdb::DB::OpenForReadOnly(options, location, &db_);
     } else {
       return leveldb::DB::Open(options, location, &db_);
@@ -947,6 +949,8 @@ struct OpenWorker final : public BaseWorker {
               Database* database,
               napi_value callback,
               const std::string& location,
+              const std::string& secondaryLocation,
+              const char* resourceName,
               const bool createIfMissing,
               const bool errorIfExists,
               const bool compression,
@@ -958,9 +962,10 @@ struct OpenWorker final : public BaseWorker {
               const uint32_t cacheSize,
               const std::string& infoLogLevel,
               const bool readOnly)
-    : BaseWorker(env, database, callback, "leveldown.db.open"),
+    : BaseWorker(env, database, callback, resourceName),
       readOnly_(readOnly),
-      location_(location) {
+      location_(location),
+      secondaryLocation_(secondaryLocation) {
     options_.create_if_missing = createIfMissing;
     options_.error_if_exists = errorIfExists;
     options_.compression = compression
@@ -972,7 +977,7 @@ struct OpenWorker final : public BaseWorker {
     options_.paranoid_checks = false;
 
     if (infoLogLevel.size() > 0) {
-      rocksdb::InfoLogLevel lvl;
+      rocksdb::InfoLogLevel lvl = rocksdb::InfoLogLevel::INFO_LEVEL;
 
       if (infoLogLevel == "debug") lvl = rocksdb::InfoLogLevel::DEBUG_LEVEL;
       else if (infoLogLevel == "info") lvl = rocksdb::InfoLogLevel::INFO_LEVEL;
@@ -1010,12 +1015,13 @@ struct OpenWorker final : public BaseWorker {
   ~OpenWorker () {}
 
   void DoExecute () override {
-    SetStatus(database_->Open(options_, readOnly_, location_.c_str()));
+    SetStatus(database_->Open(options_, readOnly_, location_.c_str(), secondaryLocation_.c_str()));
   }
 
   leveldb::Options options_;
   bool readOnly_;
   std::string location_;
+  std::string secondaryLocation_;
 };
 
 /**
@@ -1043,7 +1049,7 @@ NAPI_METHOD(db_open) {
   const uint32_t maxFileSize = Uint32Property(env, options, "maxFileSize", 2 << 20);
 
   napi_value callback = argv[3];
-  OpenWorker* worker = new OpenWorker(env, database, callback, location,
+  OpenWorker* worker = new OpenWorker(env, database, callback, location, "", "leveldown.db.open",
                                       createIfMissing, errorIfExists,
                                       compression, writeBufferSize, blockSize,
                                       maxOpenFiles, blockRestartInterval,
@@ -1051,6 +1057,45 @@ NAPI_METHOD(db_open) {
                                       infoLogLevel, readOnly);
   worker->Queue(env);
   delete [] location;
+
+  NAPI_RETURN_UNDEFINED();
+}
+
+/**
+ * Open a database as secondary instance.
+ */
+NAPI_METHOD(db_open_as_secondary) {
+  NAPI_ARGV(5);
+  NAPI_DB_CONTEXT();
+  NAPI_ARGV_UTF8_NEW(location, 1);
+  NAPI_ARGV_UTF8_NEW(secondaryLocation, 2);
+
+  napi_value options = argv[3];
+  const bool createIfMissing = BooleanProperty(env, options, "createIfMissing", true);
+  const bool errorIfExists = BooleanProperty(env, options, "errorIfExists", false);
+  const bool compression = BooleanProperty(env, options, "compression", true);
+  bool readOnly = BooleanProperty(env, options, "readOnly", false);
+
+  const std::string infoLogLevel = StringProperty(env, options, "infoLogLevel");
+
+  const uint32_t cacheSize = Uint32Property(env, options, "cacheSize", 8 << 20);
+  const uint32_t writeBufferSize = Uint32Property(env, options , "writeBufferSize" , 4 << 20);
+  const uint32_t blockSize = Uint32Property(env, options, "blockSize", 4096);
+  const uint32_t maxOpenFiles = Uint32Property(env, options, "maxOpenFiles", -1);
+  const uint32_t blockRestartInterval = Uint32Property(env, options,
+                                                 "blockRestartInterval", 16);
+  const uint32_t maxFileSize = Uint32Property(env, options, "maxFileSize", 2 << 20);
+
+  napi_value callback = argv[4];
+  OpenWorker* worker = new OpenWorker(env, database, callback, location, secondaryLocation,
+                                      "leveldown.db.open_as_secondary", createIfMissing, errorIfExists,
+                                      compression, writeBufferSize, blockSize,
+                                      maxOpenFiles, blockRestartInterval,
+                                      maxFileSize, cacheSize,
+                                      infoLogLevel, readOnly);
+  worker->Queue(env);
+  delete [] location;
+  delete [] secondaryLocation;
 
   NAPI_RETURN_UNDEFINED();
 }
@@ -2093,6 +2138,7 @@ NAPI_METHOD(batch_write) {
 NAPI_INIT() {
   NAPI_EXPORT_FUNCTION(db_init);
   NAPI_EXPORT_FUNCTION(db_open);
+  NAPI_EXPORT_FUNCTION(db_open_as_secondary);
   NAPI_EXPORT_FUNCTION(db_close);
   NAPI_EXPORT_FUNCTION(db_put);
   NAPI_EXPORT_FUNCTION(db_get);
