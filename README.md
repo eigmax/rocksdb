@@ -84,16 +84,11 @@ $ git submodule update --init --recursive
 1. Increment the version: `npm version ..`
 2. Push to GitHub: `git push --follow-tags`
 3. Wait for CI to complete
-4. Download prebuilds into `./prebuilds`: `npm run download-prebuilds`
-5. Optionally verify loading a prebuild: `npm run test-prebuild`
+4. Compile from source: `env JOBS=max npm install --build-from-source`
+5. Optionally verify the build output: `npm run test`
 6. Optionally verify which files npm will include: `canadian-pub`
 7. Finally: `npm publish`
 
-### Compilation from source
-
-```
-env JOBS=max npm install --build-from-source && npm run test
-```
 
 ## Donate
 
