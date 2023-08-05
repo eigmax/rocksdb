@@ -40,8 +40,28 @@ LevelDOWN.prototype._open = function (options, callback) {
   binding.db_open(this.context, this.location, options, callback)
 }
 
-LevelDOWN.prototype.openAsSecondary = function (options, callback) {
-  binding.db_open_as_secondary(this.context, this.location, options, callback)
+LevelDOWN.prototype.openAsSecondary = function (secondaryLocation, options, callback) {
+  const oldStatus = this.status
+  if (typeof options === 'function') callback = options
+
+  if (typeof callback !== 'function') {
+    throw new Error('openAsSecondary() requires a callback argument')
+  }
+
+  if (typeof options !== 'object' || options === null) options = {}
+
+  options.createIfMissing = options.createIfMissing !== false
+  options.errorIfExists = !!options.errorIfExists
+
+  this.status = 'opening'
+  binding.db_open_as_secondary(this.context, this.location, secondaryLocation, options, (err) => {
+    if (err) {
+      this.status = oldStatus
+      return callback(err)
+    }
+    this.status = 'open'
+    callback()
+  })
 }
 
 LevelDOWN.prototype._close = function (callback) {

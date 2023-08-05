@@ -379,7 +379,6 @@ struct BaseWorker {
                                               BaseWorker::Execute,
                                               BaseWorker::Complete,
                                               this, &asyncWork_));
-    fprintf(stderr, "BaseWorker Constructor\n");
   }
 
   virtual ~BaseWorker () {
@@ -449,9 +448,7 @@ struct BaseWorker {
   }
 
   void Queue (napi_env env) {
-    fprintf(stderr, "1111111\n");
     napi_queue_async_work(env, asyncWork_);
-    fprintf(stderr, "1111111 done\n");
   }
 
   Database* database_;
@@ -484,9 +481,7 @@ struct Database {
   leveldb::Status Open (const leveldb::Options& options,
                         bool readOnly,
                         const char* location, const char* secondaryLocation) {
-    fprintf(stderr, "Open 11111111111111111111111111111 %s %s\n", location, secondaryLocation);
     if (strlen(secondaryLocation) > 0){
-      fprintf(stderr, "second 1111111111111111111111111111\n");
       return rocksdb::DB::OpenAsSecondary(options, location, secondaryLocation, &db_);
     } else if (readOnly) {
       return rocksdb::DB::OpenForReadOnly(options, location, &db_);
@@ -1071,14 +1066,12 @@ NAPI_METHOD(db_open) {
  * Open a database as secondary instance.
  */
 NAPI_METHOD(db_open_as_secondary) {
-  NAPI_ARGV(4);
+  NAPI_ARGV(5);
   NAPI_DB_CONTEXT();
   NAPI_ARGV_UTF8_NEW(location, 1);
-  //NAPI_ARGV_UTF8_NEW(secondaryLocation, 2);
-  // fprintf(stderr, "location %s %s\n", location, secondaryLocation);
+  NAPI_ARGV_UTF8_NEW(secondaryLocation, 2);
 
-  napi_value options = argv[2];
-  fprintf(stderr, "11\n");
+  napi_value options = argv[3];
   const bool createIfMissing = BooleanProperty(env, options, "createIfMissing", true);
   const bool errorIfExists = BooleanProperty(env, options, "errorIfExists", false);
   const bool compression = BooleanProperty(env, options, "compression", true);
@@ -1089,28 +1082,24 @@ NAPI_METHOD(db_open_as_secondary) {
   const uint32_t cacheSize = Uint32Property(env, options, "cacheSize", 8 << 20);
   const uint32_t writeBufferSize = Uint32Property(env, options , "writeBufferSize" , 4 << 20);
   const uint32_t blockSize = Uint32Property(env, options, "blockSize", 4096);
-  const uint32_t maxOpenFiles = Uint32Property(env, options, "maxOpenFiles", 1000);
+  const uint32_t maxOpenFiles = Uint32Property(env, options, "maxOpenFiles", -1);
   const uint32_t blockRestartInterval = Uint32Property(env, options,
                                                  "blockRestartInterval", 16);
   const uint32_t maxFileSize = Uint32Property(env, options, "maxFileSize", 2 << 20);
 
-  napi_value callback = argv[3];
-  fprintf(stderr, "22\n");
-  std::string secondaryLocation = "/tmp/4fd554fd30a31ef8500768e9ffccbddd_secondary";
-  OpenWorker* worker = new OpenWorker(env, database, callback, location,
-                                      secondaryLocation, "leveldown.db.open_as_secondary", createIfMissing, errorIfExists,
+  napi_value callback = argv[4];
+  // std::string secondaryLocation = "/tmp/4fd554fd30a31ef8500768e9ffccbddd_secondary";
+  OpenWorker* worker = new OpenWorker(env, database, callback, location, secondaryLocation,
+                                      "leveldown.db.open_as_secondary", createIfMissing, errorIfExists,
                                       compression, writeBufferSize, blockSize,
                                       maxOpenFiles, blockRestartInterval,
                                       maxFileSize, cacheSize,
                                       infoLogLevel, readOnly);
-  fprintf(stderr, "33\n");
   worker->Queue(env);
-  fprintf(stderr, "44\n");
   delete [] location;
-  //delete [] secondaryLocation;
+  delete [] secondaryLocation;
 
   NAPI_RETURN_UNDEFINED();
-  fprintf(stderr, "55\n");
 }
 
 /**
