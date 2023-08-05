@@ -89,6 +89,12 @@ $ git submodule update --init --recursive
 6. Optionally verify which files npm will include: `canadian-pub`
 7. Finally: `npm publish`
 
+### Compilation from source
+
+```
+env JOBS=max npm install --build-from-source && npm run test
+```
+
 ## Donate
 
 Support us with a monthly donation on [Open Collective](https://opencollective.com/level) and help us continue our work.

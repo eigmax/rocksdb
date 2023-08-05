@@ -18,6 +18,7 @@ namespace leveldb = rocksdb;
 
 #include <map>
 #include <vector>
+#include <exception>
 
 class NullLogger : public rocksdb::Logger {
 public:
@@ -378,6 +379,7 @@ struct BaseWorker {
                                               BaseWorker::Execute,
                                               BaseWorker::Complete,
                                               this, &asyncWork_));
+    fprintf(stderr, "BaseWorker Constructor\n");
   }
 
   virtual ~BaseWorker () {
@@ -447,7 +449,9 @@ struct BaseWorker {
   }
 
   void Queue (napi_env env) {
+    fprintf(stderr, "1111111\n");
     napi_queue_async_work(env, asyncWork_);
+    fprintf(stderr, "1111111 done\n");
   }
 
   Database* database_;
@@ -479,8 +483,10 @@ struct Database {
 
   leveldb::Status Open (const leveldb::Options& options,
                         bool readOnly,
-                        const char* location, const char* secondaryLocation = NULL) {
-    if (secondaryLocation){
+                        const char* location, const char* secondaryLocation) {
+    fprintf(stderr, "Open 11111111111111111111111111111 %s %s\n", location, secondaryLocation);
+    if (strlen(secondaryLocation) > 0){
+      fprintf(stderr, "second 1111111111111111111111111111\n");
       return rocksdb::DB::OpenAsSecondary(options, location, secondaryLocation, &db_);
     } else if (readOnly) {
       return rocksdb::DB::OpenForReadOnly(options, location, &db_);
@@ -949,6 +955,8 @@ struct OpenWorker final : public BaseWorker {
               Database* database,
               napi_value callback,
               const std::string& location,
+              const std::string& secondaryLocation,
+              const char* resourceName,
               const bool createIfMissing,
               const bool errorIfExists,
               const bool compression,
@@ -960,9 +968,10 @@ struct OpenWorker final : public BaseWorker {
               const uint32_t cacheSize,
               const std::string& infoLogLevel,
               const bool readOnly)
-    : BaseWorker(env, database, callback, "leveldown.db.open"),
+    : BaseWorker(env, database, callback, resourceName),
       readOnly_(readOnly),
-      location_(location) {
+      location_(location),
+      secondaryLocation_(secondaryLocation) {
     options_.create_if_missing = createIfMissing;
     options_.error_if_exists = errorIfExists;
     options_.compression = compression
@@ -974,7 +983,7 @@ struct OpenWorker final : public BaseWorker {
     options_.paranoid_checks = false;
 
     if (infoLogLevel.size() > 0) {
-      rocksdb::InfoLogLevel lvl;
+      rocksdb::InfoLogLevel lvl = rocksdb::InfoLogLevel::INFO_LEVEL;
 
       if (infoLogLevel == "debug") lvl = rocksdb::InfoLogLevel::DEBUG_LEVEL;
       else if (infoLogLevel == "info") lvl = rocksdb::InfoLogLevel::INFO_LEVEL;
@@ -1012,12 +1021,13 @@ struct OpenWorker final : public BaseWorker {
   ~OpenWorker () {}
 
   void DoExecute () override {
-    SetStatus(database_->Open(options_, readOnly_, location_.c_str()));
+    SetStatus(database_->Open(options_, readOnly_, location_.c_str(), secondaryLocation_.c_str()));
   }
 
   leveldb::Options options_;
   bool readOnly_;
   std::string location_;
+  std::string secondaryLocation_;
 };
 
 /**
@@ -1045,7 +1055,7 @@ NAPI_METHOD(db_open) {
   const uint32_t maxFileSize = Uint32Property(env, options, "maxFileSize", 2 << 20);
 
   napi_value callback = argv[3];
-  OpenWorker* worker = new OpenWorker(env, database, callback, location,
+  OpenWorker* worker = new OpenWorker(env, database, callback, location, "", "leveldown.db.open",
                                       createIfMissing, errorIfExists,
                                       compression, writeBufferSize, blockSize,
                                       maxOpenFiles, blockRestartInterval,
@@ -1057,100 +1067,18 @@ NAPI_METHOD(db_open) {
   NAPI_RETURN_UNDEFINED();
 }
 
-
 /**
- * Worker class for opening a database.
- * TODO: shouldn't this be a PriorityWorker?
- */
-struct OpenAsSecondaryWorker final : public BaseWorker {
-  OpenAsSecondaryWorker (napi_env env,
-              Database* database,
-              napi_value callback,
-              const std::string& location,
-              const std::string& secondaryLocation,
-              const bool createIfMissing,
-              const bool errorIfExists,
-              const bool compression,
-              const uint32_t writeBufferSize,
-              const uint32_t blockSize,
-              const uint32_t maxOpenFiles,
-              const uint32_t blockRestartInterval,
-              const uint32_t maxFileSize,
-              const uint32_t cacheSize,
-              const std::string& infoLogLevel,
-              const bool readOnly)
-    : BaseWorker(env, database, callback, "leveldown.db.open"),
-      readOnly_(readOnly),
-      location_(location),
-      secondaryLocation_(secondaryLocation){
-    options_.create_if_missing = createIfMissing;
-    options_.error_if_exists = errorIfExists;
-    options_.compression = compression
-      ? leveldb::kSnappyCompression
-      : leveldb::kNoCompression;
-    options_.write_buffer_size = writeBufferSize;
-    options_.max_open_files = maxOpenFiles;
-    options_.max_log_file_size = maxFileSize;
-    options_.paranoid_checks = false;
-
-    if (infoLogLevel.size() > 0) {
-      rocksdb::InfoLogLevel lvl;
-
-      if (infoLogLevel == "debug") lvl = rocksdb::InfoLogLevel::DEBUG_LEVEL;
-      else if (infoLogLevel == "info") lvl = rocksdb::InfoLogLevel::INFO_LEVEL;
-      else if (infoLogLevel == "warn") lvl = rocksdb::InfoLogLevel::WARN_LEVEL;
-      else if (infoLogLevel == "error") lvl = rocksdb::InfoLogLevel::ERROR_LEVEL;
-      else if (infoLogLevel == "fatal") lvl = rocksdb::InfoLogLevel::FATAL_LEVEL;
-      else if (infoLogLevel == "header") lvl = rocksdb::InfoLogLevel::HEADER_LEVEL;
-      else napi_throw_error(env, NULL, "invalid log level");
-
-      options_.info_log_level = lvl;
-    } else {
-      // In some places RocksDB checks this option to see if it should prepare
-      // debug information (ahead of logging), so set it to the highest level.
-      options_.info_log_level = rocksdb::InfoLogLevel::HEADER_LEVEL;
-      options_.info_log.reset(new NullLogger());
-    }
-
-    rocksdb::BlockBasedTableOptions tableOptions;
-
-    if (cacheSize) {
-      tableOptions.block_cache = rocksdb::NewLRUCache(cacheSize);
-    } else {
-      tableOptions.no_block_cache = true;
-    }
-
-    tableOptions.block_size = blockSize;
-    tableOptions.block_restart_interval = blockRestartInterval;
-    tableOptions.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10));
-
-    options_.table_factory.reset(
-      rocksdb::NewBlockBasedTableFactory(tableOptions)
-    );
-  }
-
-  ~OpenAsSecondaryWorker () {}
-
-  void DoExecute () override {
-    SetStatus(database_->Open(options_, readOnly_, location_.c_str(), secondaryLocation_.c_str()));
-  }
-
-  leveldb::Options options_;
-  bool readOnly_;
-  std::string location_;
-  std::string secondaryLocation_;
-};
-
-/**
- * Open a database.
+ * Open a database as secondary instance.
  */
 NAPI_METHOD(db_open_as_secondary) {
-  NAPI_ARGV(5);
+  NAPI_ARGV(4);
   NAPI_DB_CONTEXT();
   NAPI_ARGV_UTF8_NEW(location, 1);
-  NAPI_ARGV_UTF8_NEW(secondaryLocation, 2);
+  //NAPI_ARGV_UTF8_NEW(secondaryLocation, 2);
+  // fprintf(stderr, "location %s %s\n", location, secondaryLocation);
 
-  napi_value options = argv[3];
+  napi_value options = argv[2];
+  fprintf(stderr, "11\n");
   const bool createIfMissing = BooleanProperty(env, options, "createIfMissing", true);
   const bool errorIfExists = BooleanProperty(env, options, "errorIfExists", false);
   const bool compression = BooleanProperty(env, options, "compression", true);
@@ -1166,18 +1094,23 @@ NAPI_METHOD(db_open_as_secondary) {
                                                  "blockRestartInterval", 16);
   const uint32_t maxFileSize = Uint32Property(env, options, "maxFileSize", 2 << 20);
 
-  napi_value callback = argv[4];
-  OpenAsSecondaryWorker* worker = new OpenAsSecondaryWorker(env, database, callback, location,
-                                      secondaryLocation, createIfMissing, errorIfExists,
+  napi_value callback = argv[3];
+  fprintf(stderr, "22\n");
+  std::string secondaryLocation = "/tmp/4fd554fd30a31ef8500768e9ffccbddd_secondary";
+  OpenWorker* worker = new OpenWorker(env, database, callback, location,
+                                      secondaryLocation, "leveldown.db.open_as_secondary", createIfMissing, errorIfExists,
                                       compression, writeBufferSize, blockSize,
                                       maxOpenFiles, blockRestartInterval,
                                       maxFileSize, cacheSize,
                                       infoLogLevel, readOnly);
+  fprintf(stderr, "33\n");
   worker->Queue(env);
+  fprintf(stderr, "44\n");
   delete [] location;
-  delete [] secondaryLocation;
+  //delete [] secondaryLocation;
 
   NAPI_RETURN_UNDEFINED();
+  fprintf(stderr, "55\n");
 }
 
 /**

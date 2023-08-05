@@ -6,7 +6,7 @@ const binding = require('./binding')
 const ChainedBatch = require('./chained-batch')
 const Iterator = require('./iterator')
 
-function LevelDOWN (location, secondLocation = undefined) {
+function LevelDOWN (location) {
   if (!(this instanceof LevelDOWN)) {
     return new LevelDOWN(location)
   }
@@ -31,7 +31,6 @@ function LevelDOWN (location, secondLocation = undefined) {
   })
 
   this.location = location
-  this.secondLocation = secondLocation
   this.context = binding.db_init()
 }
 
@@ -41,8 +40,8 @@ LevelDOWN.prototype._open = function (options, callback) {
   binding.db_open(this.context, this.location, options, callback)
 }
 
-LevelDOWN.prototype._openAsSecondary = function (options, callback) {
-  binding.db_open_as_secondary(this.context, this.location, this.secondLocation, options, callback)
+LevelDOWN.prototype.openAsSecondary = function (options, callback) {
+  binding.db_open_as_secondary(this.context, this.location, options, callback)
 }
 
 LevelDOWN.prototype._close = function (callback) {
