@@ -18,7 +18,6 @@ namespace leveldb = rocksdb;
 
 #include <map>
 #include <vector>
-#include <exception>
 
 class NullLogger : public rocksdb::Logger {
 public:
@@ -1088,7 +1087,6 @@ NAPI_METHOD(db_open_as_secondary) {
   const uint32_t maxFileSize = Uint32Property(env, options, "maxFileSize", 2 << 20);
 
   napi_value callback = argv[4];
-  // std::string secondaryLocation = "/tmp/4fd554fd30a31ef8500768e9ffccbddd_secondary";
   OpenWorker* worker = new OpenWorker(env, database, callback, location, secondaryLocation,
                                       "leveldown.db.open_as_secondary", createIfMissing, errorIfExists,
                                       compression, writeBufferSize, blockSize,
